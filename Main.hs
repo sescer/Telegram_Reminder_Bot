@@ -8,11 +8,11 @@ import           Data.Time
 import           Control.Monad.IO.Class
 import           Control.Concurrent
 
-token = Token "bot1056873657:AAF6cxffiubyd6IhGtYkr1832y74E6dIBQE"
+token = Token "" --You can get token from @botfarther in Telegram
 
-fmtTime :: ZonedTime -> String -- Форматирование времени
+fmtTime :: ZonedTime -> String --Time formatting
 fmtTime = formatTime defaultTimeLocale "%Y-%m-%d %H:%M"
-prsTime :: TimeZone -> String -> Maybe ZonedTime -- Парсинг времени
+prsTime :: TimeZone -> String -> Maybe ZonedTime -- Time parsing
 prsTime tz s = do
     let t = (parseTime defaultTimeLocale "%Y-%m-%d %H:%M" s) :: Maybe LocalTime
     case t of
@@ -21,14 +21,14 @@ prsTime tz s = do
 
 delayUntil :: ZonedTime -> IO ()
 delayUntil time = do
-    now <- getZonedTime -- Текущее время
-    let diff = toRational (diffUTCTime (zonedTimeToUTC time) (zonedTimeToUTC now)) -- Разница между текущим и указанным как Rational
+    now <- getZonedTime -- Current time
+    let diff = toRational (diffUTCTime (zonedTimeToUTC time) (zonedTimeToUTC now)) -- Difference between current and listed as Rational
     if diff > 0
         then do -- Если нужно ждать
-            let a = (1000 * 1e6)  -- 1000 сек в микросекундах
-            let b = (diff * 1e6) -- Время до указанного в микросекундах
-            threadDelay (floor (min a b) :: Int) --- Ждем минимальное из них (т.к. слишком много микросекунд в Int не влезет)
-            delayUntil time -- И ждем еще раз, на случай если ждать нужно больше 1000 сек
+            let a = (1000 * 1e6)  -- 1000 sec to microseconds
+            let b = (diff * 1e6) -- Time to specified in microseconds
+            threadDelay (floor (min a b) :: Int) -- We are waiting for the minimum of them (because too many microseconds will not fit into Int)
+            delayUntil time -- And we are waiting again, in case you need to wait more than 1000 seconds
         else do
             return ()
 
@@ -36,8 +36,8 @@ reminder :: Maybe ZonedTime -> ChatId -> Text -> IO ()
 reminder (Just t) cid text = do
     delayUntil t -- Ждем указанного времени
     manager <- newManager tlsManagerSettings
-    result <- runTelegramClient token manager $ do -- Еще раз создаем монаду TelegramClient (т.к. мы из нее перешли в IO и к ней доступа уже нет)
-        sendMessageM (sendMessageRequest cid text) -- Отправляем указанное сообщение
+    result <- runTelegramClient token manager $ do -- Once again, we create the TelegramClient monad (since we switched from it to IO and there is no longer access to it)
+        sendMessageM (sendMessageRequest cid text) -- We send the specified message
     return ()
 reminder _ _ _ = return ()
 
@@ -67,20 +67,20 @@ startMessage = Data.Text.unlines
 
 
 onPrivateMessage :: Message -> TelegramClient ()
-onPrivateMessage Message {text = Nothing} = return () -- Если текста нет выходим
+onPrivateMessage Message {text = Nothing} = return () -- If there is no text, exit
 onPrivateMessage Message {text = Just text, chat = Chat {chat_id = chat_id}}
-    | isPrefixOf "/reminder " text = do -- Если начинается с reminder
-        let parts = tail $ Data.Text.words text --- Разделяем на слова и убираем reminder (words разделяет на слова)
+    | isPrefixOf "/reminder " text = do -- If it starts with a "/reminder"
+        let parts = tail $ Data.Text.words text --- Divide into words and remove reminder (words divide into words)
         tz <- liftIO getCurrentTimeZone
-        let t = prsTime tz $ unpack $ Data.Text.unwords (take 2 parts) --- Парсим время (unwords соединяет слова через пробел) (unpack превращает Text в String)
-        let text = Data.Text.unwords (drop 2 parts) -- Текст напоминания
+        let t = prsTime tz $ unpack $ Data.Text.unwords (take 2 parts) --- Parse time (unwords concatenate words separated by space) (unpack turns Text into String)
+        let text = Data.Text.unwords (drop 2 parts) -- Reminder text
         sendMessageM (sendMessageRequest (ChatId chat_id) "OK, I will remind you")
-        liftIO $ forkIO (reminder t (ChatId chat_id) text) -- Запускаем поток с функцией reminder в монаде IO
+        liftIO $ forkIO (reminder t (ChatId chat_id) text) -- We start a thread with the reminder function in the IO monad
         return ()
     | text == "/time" = do
-        now <- liftIO getZonedTime -- Получаем текущее время
-        let time = pack $ fmtTime now -- Выводим его в строку
-        sendMessageM (sendMessageRequest (ChatId chat_id) time) -- Отправляем в ответ
+        now <- liftIO getZonedTime -- Get the current time
+        let time = pack $ fmtTime now -- Ooutput it to the line
+        sendMessageM (sendMessageRequest (ChatId chat_id) time) -- Send back
         return ()
     | text == "/start" = do
         sendMessageM (sendMessageRequest (ChatId chat_id) startMessage)
@@ -88,37 +88,37 @@ onPrivateMessage Message {text = Just text, chat = Chat {chat_id = chat_id}}
     | otherwise = return ()
 
 processUpdate :: Update -> TelegramClient ()
-processUpdate Update {message = Just msg} = case msg of -- Обрабатываем обновления типа message
-    Message {chat = Chat {chat_type = Private}} -> onPrivateMessage msg -- Если оно из приватного чата то передаем в функцию
+processUpdate Update {message = Just msg} = case msg of -- Processing updates of the message type
+    Message {chat = Chat {chat_type = Private}} -> onPrivateMessage msg -- If it is from a private chat, then we pass it to the function
     otherwise -> return ()
 processUpdate _ = return ()
 
-forUpdates :: [Update] -> TelegramClient () --- Просто цикл по обновлениям
+forUpdates :: [Update] -> TelegramClient () --- Just a cycle of updates
 forUpdates [] = return ()
 forUpdates (u:us) = do
     processUpdate u
     forUpdates us
 
-getUpdateId Update {update_id = uid} = uid -- Маппинг обновления в его id
+getUpdateId Update {update_id = uid} = uid -- Mapping update to its id
 
 loop :: Maybe Int -> TelegramClient ()
 loop offset = do
-    result <- getUpdatesM (GetUpdatesRequest offset Nothing (Just 15) Nothing) -- Получаем обновления с ожиданием 15 сек если их нет
+    result <- getUpdatesM (GetUpdatesRequest offset Nothing (Just 15) Nothing) -- Receive updates with a wait of 15 seconds if they are not.
     let Response {result = updates} = result
-    forUpdates updates -- Обрабатываем обновления
+    forUpdates updates -- Processing updates
     case updates of
-        []        -> loop Nothing -- Получаем все обновления (если ничего лишнего и так нет)
-        otherwise -> loop newOffset -- Получаем обновления только те обновления, которых еще не получили
+        []        -> loop Nothing -- Receive all updates (if there is nothing superfluous and so there is nothing)
+        otherwise -> loop newOffset -- Receive updates only those updates that have not yet been received
             where
-                maxId = maximum (map getUpdateId updates) -- Находим максимальный id обновления
-                newOffset = Just (1 + maxId) -- Новый offset для получения обновлений
+                maxId = maximum (map getUpdateId updates) -- Find the maximum update id
+                newOffset = Just (1 + maxId) -- New offset to receive updates
 
 main :: IO ()
 main = do
     manager <- newManager tlsManagerSettings
-    result <- runTelegramClient token manager $ do -- Вызываем функцию в монаде TelegramClient
-        Response {result = me} <- getMeM -- Получаем информацию о себе
-        liftIO $ print me -- И выводим её
-        loop Nothing -- Запускаем цикл обработки событий
+    result <- runTelegramClient token manager $ do -- Calling a function in the TelegramClient monad
+        Response {result = me} <- getMeM -- Receive information about ourselves
+        liftIO $ print me -- And take it out
+        loop Nothing -- Starting the event loop
     print result
     print "done!"
